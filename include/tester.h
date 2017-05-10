@@ -1,75 +1,91 @@
 #pragma once
 
 #include <sstream>
+#include <typeindex>
 
 namespace tester
 {
 	extern std::ostringstream report;
 
-	enum class Op { E, NE, L, LE, G, GE };
+	template <class T>
+	struct is_streamable
+	{
+		template <class U>
+		static auto test(U* u) -> decltype(std::declval<std::ostream&>() << *u);
+		static auto test(...) -> std::false_type;
+
+		static const bool value = !std::is_same_v<std::false_type, decltype(test((T*)nullptr))>;
+	};
+
+	template <class T>
+	std::enable_if_t<is_streamable<T>::value, std::ostream&> print(std::ostream& out, const T& value) { return out << value; }
+	template <class T>
+	std::enable_if_t<!is_streamable<T>::value, std::ostream&> print(std::ostream& out, const T&) { return out << '{' << typeid(T).name() << '}'; }
+
+	inline std::ostream& print(std::ostream& out, const      type_info&  type) { return out << type.name(); }
+	inline std::ostream& print(std::ostream& out, const std::type_index& type) { return out << type.name(); }
 
 	template <class A, class B>
-	bool apply(Op op, const A& a, const B& b) 
-	{
-		switch (op)
-		{
-		case Op::E:  return a == b;
-		case Op::NE: return a != b;
-		case Op::L:  return a <  b;
-		case Op::LE: return a <= b;
-		case Op::GE: return a >= b;
-		case Op::G:  return a >  b;
-		default: return false;
-		}
-	}
+	std::ostream& print(std::ostream& out, const std::pair<A, B>& pair) { return out << '(' << pair.first << ", " << pair.second << ')'; }
+
+
+	enum class Op { E, NE, L, LE, G, GE };
+
+	template <Op OP>
+	struct Applier { };
+
+	template <> struct Applier<Op::E>  { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a == b; } };
+	template <> struct Applier<Op::NE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a != b; } };
+	template <> struct Applier<Op::L>  { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a <  b; } };
+	template <> struct Applier<Op::LE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a <= b; } };
+	template <> struct Applier<Op::GE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a >= b; } };
+	template <> struct Applier<Op::G>  { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a >  b; } };
 
 	std::ostream& operator<<(std::ostream& out, Op op);
 
-
-	template <typename...>
-	struct Result;
-
-	template <>
-	struct Result<> { };
-
+	struct Split { };
 
 	template <typename T>
-	struct Result<T>
+	struct Result
 	{
 		T value;
 
 		explicit operator bool() const { return bool(value); }
 	};
+
 	template <typename T>
 	std::ostream& operator<<(std::ostream& out, const Result<T>& result)
 	{
-		return out << result.value;
+		return print(out, result.value);
 	}
 
-	template <typename A, typename B>
-	struct Result<A, B>
+	template <Op OP, typename A, typename B>
+	struct Results
 	{
 		A lhs;
 		B rhs;
-		Op op;
 
-		explicit operator bool() const { return apply(op, lhs, rhs); }
+		template <class U, class V>
+		Results(U&& a, V&& b) : lhs(std::forward<U>(a)), rhs(std::forward<V>(b)) { }
+
+		explicit operator bool() const { return Applier<OP>::apply(lhs, rhs); }
 	};
-	template <typename A, typename B>
-	std::ostream& operator<<(std::ostream& out, const Result<A, B>& result)
+
+	template <Op OP, typename A, typename B>
+	std::ostream& operator<<(std::ostream& out, const Results<OP, A, B>& result)
 	{
-		return out << result.lhs << ' ' << result.op << ' ' << result.rhs;
+		return print(print(out, result.lhs) << ' ' << OP << ' ', result.rhs);
 	}
 
 	template <typename T>
-	Result<T> operator<<(Result<>&&, T&& value) { return { std::forward<T>(value) }; }
+	Result<T> operator<<(Split&&, T&& value) { return { std::forward<T>(value) }; }
 
-	template <class A, class B> Result<A, B> operator==(Result<A>&& lhsr, B&& rhs) { return { std::move(lhsr.value), std::forward<B>(rhs), Op::E }; }
-	template <class A, class B> Result<A, B> operator!=(Result<A>&& lhsr, B&& rhs) { return { std::move(lhsr.value), std::forward<B>(rhs), Op::NE }; }
-	template <class A, class B> Result<A, B> operator< (Result<A>&& lhsr, B&& rhs) { return { std::move(lhsr.value), std::forward<B>(rhs), Op::L }; }
-	template <class A, class B> Result<A, B> operator<=(Result<A>&& lhsr, B&& rhs) { return { std::move(lhsr.value), std::forward<B>(rhs), Op::LE }; }
-	template <class A, class B> Result<A, B> operator>=(Result<A>&& lhsr, B&& rhs) { return { std::move(lhsr.value), std::forward<B>(rhs), Op::GE }; }
-	template <class A, class B> Result<A, B> operator> (Result<A>&& lhsr, B&& rhs) { return { std::move(lhsr.value), std::forward<B>(rhs), Op::G }; }
+	template <class A, class B> auto operator==(Result<A>&& lhsr, B&& rhs) { return Results<Op::E,  A, B>{ std::forward<A>(lhsr.value), std::forward<B>(rhs) }; }
+	template <class A, class B> auto operator!=(Result<A>&& lhsr, B&& rhs) { return Results<Op::NE, A, B>{ std::forward<A>(lhsr.value), std::forward<B>(rhs) }; }
+	template <class A, class B> auto operator< (Result<A>&& lhsr, B&& rhs) { return Results<Op::L,  A, B>{ std::forward<A>(lhsr.value), std::forward<B>(rhs) }; }
+	template <class A, class B> auto operator<=(Result<A>&& lhsr, B&& rhs) { return Results<Op::LE, A, B>{ std::forward<A>(lhsr.value), std::forward<B>(rhs) }; }
+	template <class A, class B> auto operator>=(Result<A>&& lhsr, B&& rhs) { return Results<Op::GE, A, B>{ std::forward<A>(lhsr.value), std::forward<B>(rhs) }; }
+	template <class A, class B> auto operator> (Result<A>&& lhsr, B&& rhs) { return Results<Op::G,  A, B>{ std::forward<A>(lhsr.value), std::forward<B>(rhs) }; }
 
 
 	class Assertion
@@ -208,10 +224,10 @@ namespace tester
 #define TESTER_PASTE_IMPL(a, b) a ## b
 #define TESTER_PASTE(a, b) TESTER_PASTE_IMPL(a, b)
 
-#define TESTER_ASSERTION(expr) ::tester::make_assertion(__FILE__, __LINE__, #expr, [&] { return ::tester::Result<>{} << expr; })
+#define TESTER_ASSERTION(expr) ::tester::make_assertion(__FILE__, __LINE__, #expr, [&] { return ::tester::Split{} << expr; })
 #define TESTER_CHECK(expr) ::tester::check(TESTER_ASSERTION(expr))
 #define TESTER_CHECK_EACH(expr) ::tester::check_each(TESTER_ASSERTION(expr))
-#define TESTER_TEST_CASE(name) static const auto Case = ::tester::Case(name) << []
+#define TESTER_TEST_CASE(name) static const auto TESTER_PASTE(_test_case_, __COUNTER__) = ::tester::Case(name) << []
 #define TESTER_SUBCASE(name) if (auto TESTER_PASTE(_subcase_, __COUNTER__) = ::tester::Subcase(name)) 
 
 #ifndef TESTER_NO_ALIAS
