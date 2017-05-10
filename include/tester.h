@@ -213,3 +213,10 @@ namespace tester
 #define TESTER_CHECK_EACH(expr) ::tester::check_each(TESTER_ASSERTION(expr))
 #define TESTER_TEST_CASE(name) static const auto Case = ::tester::Case(name) << []
 #define TESTER_SUBCASE(name) if (auto TESTER_PASTE(_subcase_, __COUNTER__) = ::tester::Subcase(name)) 
+
+#ifndef TESTER_NO_ALIAS
+#define TEST_CASE(name) TESTER_TEST_CASE(name)
+#define SUBCASE(name) TESTER_SUBCASE(name)
+#define CHECK(expr) TESTER_CHECK(expr)
+#define CHECK_EACH(expr) TESTER_CHECK_EACH(expr)
+#endif
