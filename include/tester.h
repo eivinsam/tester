@@ -5,7 +5,16 @@
 
 namespace tester
 {
-	extern std::ostringstream report;
+	using Report = std::ostringstream;
+
+	extern Report report;
+
+	// Subreport contents are automatically added to the main report on destruction
+	class Subreport : public Report
+	{
+	public:
+		~Subreport();
+	};
 
 	template <class T>
 	struct is_streamable
@@ -62,6 +71,8 @@ namespace tester
 	template <Op OP, typename A, typename B>
 	struct Results
 	{
+		static constexpr Op op = OP;
+
 		A lhs;
 		B rhs;
 
@@ -88,12 +99,37 @@ namespace tester
 	template <class A, class B> auto operator> (Result<A>&& lhsr, B&& rhs) { return Results<Op::G,  A, B>{ std::forward<A>(lhsr.value), std::forward<B>(rhs) }; }
 
 
+	bool report_failure();
+
+	template <class F>
+	class Once
+	{
+		F    _func;
+		bool _done;
+	public:
+		using result_t = std::result_of_t<F()>;
+
+		Once(F&& f) : _func(f), _done(false) { }
+
+		result_t operator()() { _done = true; return _func(); }
+
+		void operator()(result_t& result) { if (!_done) result = (*this)(); }
+
+		explicit operator bool() const { return !_done; }
+	};
+
+	template <class F>
+	Once<F> once(F&& f) { return { std::forward<F>(f) }; }
+
+
 	class Assertion
 	{
 	public:
 		const char* const file;
 		unsigned    const line;
 		const char* const expr;
+
+		static void increaseCount();
 	};
 	std::ostream& operator<<(std::ostream& out, const Assertion& test);
 
@@ -102,7 +138,6 @@ namespace tester
 	{
 		Proc _proc;
 	public:
-
 		AssertionOf(const char* file, unsigned line, const char* expr, Proc&& procedure)
 			: Assertion{ file, line, expr }, _proc(std::move(procedure)) { }
 
@@ -115,12 +150,39 @@ namespace tester
 		return { file, line, expr, std::forward<Proc>(proc) }; 
 	}
 
+	template <class Proc>
+	void check_noexcept(AssertionOf<Proc>&& test)
+	{
+		try
+		{
+			test();
+		}
+		catch (std::exception& e)
+		{
+			Assertion::increaseCount();
+			if (report_failure()) 
+				Subreport{} <<
+				test << "failed:\n" <<
+				"    threw " << (typeid(e).name() + 6) << " with message:\n" <<
+				"      " << e.what() << "\n";
+		}
+		catch (...)
+		{
+			Assertion::increaseCount();
+			if (report_failure())
+				Subreport{} <<
+				test << "failed:\n" <<
+				"    threw unknown exception\n";
+		}
+
+	}
 
 	template <class Proc>
 	void check(AssertionOf<Proc>&& test)
 	{
-		try 
+		check_noexcept(make_assertion(test.file, test.line, test.expr, [&test]
 		{
+			Assertion::increaseCount();
 			auto result = test();
 			if (result)
 			{
@@ -128,72 +190,60 @@ namespace tester
 			}
 			else
 			{
-				report << 
+				if (report_failure())
+					Subreport{} <<
 					test << "failed: expands to\n" <<
-					"    " << result << "\n\n";
+					"    " << result << "\n";
 			}
-		}
-		catch (std::exception& e)
-		{
-			report <<
-				test << "failed:\n" <<
-				"    threw " << (typeid(e).name()+6) << " with message:\n" <<
-				"      " << e.what() << "\n\n";
-		}
-		catch (...)
-		{
-			report <<
-				test << "failed:\n" <<
-				"    threw unknown exception\n\n";
-		}
+		}));
 	}
 	template <class Proc>
 	void check_each(AssertionOf<Proc>&& test)
 	{
-		try
+		check_noexcept(make_assertion(test.file, test.line, test.expr, [&test]
 		{
-			std::ostringstream subreport;
+			Assertion::increaseCount();
+			Subreport subreport;
+
+			auto report_once = once(report_failure);
+			bool do_report = false;
 			auto result = test();
 			auto ita = std::begin(result.lhs); auto enda = std::end(result.lhs);
 			auto itb = std::begin(result.rhs); auto endb = std::end(result.rhs);
-			size_t i = 0;
-			for (; ita != enda && itb != endb; ++ita, ++itb)
+			
+			for (size_t i = 0; ita != enda && itb != endb; ++ita, ++itb, ++i)
 			{
 				const auto ai = *ita;
 				const auto bi = *itb;
-				if (!apply(result.op, ai, bi))
+				if (!Applier<result.op>::apply(ai, bi))
 				{
-					subreport <<
+					report_once(do_report);
+					if (do_report)
+						subreport <<
 						"at index " << i << ":\n"
 						"    " << ai << " " << result.op << " " << bi << "\n";
 				}
 			}
-			auto pack_subreport = subreport.str();
-			if (!pack_subreport.empty())
+			const bool different_size = (ita != enda || itb != endb);
+			if (different_size)
+				report_once(do_report);
+			if (do_report)
 			{
-				report <<
-					test << "failed: element-by-element mismatch:\n" <<
-					pack_subreport << "\n";
+				auto pack_subreport = subreport.str();
+				subreport.str("");
+				if (different_size)
+				{
+					subreport <<
+						test << "failed: size mismatch\n";
+				}
+				if (!pack_subreport.empty())
+				{
+					subreport <<
+						test << "failed: element-by-element mismatch:\n" <<
+						pack_subreport;
+				}
 			}
-			else if (ita != enda || itb != endb)
-			{
-				report <<
-					test << "failed: size mismatch\n\n";
-			}
-		}
-		catch (std::exception& e)
-		{
-			report <<
-				test << "failed:\n" <<
-				"    threw " << (typeid(e).name() + 6) << " with message:\n" <<
-				"      " << e.what() << "\n\n";
-		}
-		catch (...)
-		{
-			report <<
-				test << "failed:\n" <<
-				"    threw unknown exception\n\n";
-		}
+		}));
 	}
 
 
@@ -210,12 +260,41 @@ namespace tester
 
 	class Subcase
 	{
+		friend class Repeat;
 		const bool _shall_enter;
 	public:
 		Subcase(std::string_view name);
 		~Subcase();
 
 		explicit operator bool() { return _shall_enter; }
+	};
+
+	class Repeat
+	{
+		struct sentinel { };
+
+		class iterator
+		{
+			size_t _i;
+		public:
+			iterator(size_t i) : _i(i) { }
+
+			iterator& operator++() { ++_i; return *this; }
+
+			size_t operator*() const { return _i; }
+
+			bool operator!=(const iterator&) const;
+		};
+
+		Subcase _case;
+		const size_t _count;
+	public:
+		Repeat(size_t count);
+
+		size_t size() const { return _count; }
+
+		iterator begin() const { return { 0 }; }
+		iterator   end() const { return { _count }; }
 	};
 
 	void runTests();
@@ -229,6 +308,7 @@ namespace tester
 #define TESTER_CHECK_EACH(expr) ::tester::check_each(TESTER_ASSERTION(expr))
 #define TESTER_TEST_CASE(name) static const auto TESTER_PASTE(_test_case_, __COUNTER__) = ::tester::Case(name) << []
 #define TESTER_SUBCASE(name) if (auto TESTER_PASTE(_subcase_, __COUNTER__) = ::tester::Subcase(name)) 
+#define TESTER_REPEAT(count) for (auto i : ::tester::Repeat(count))
 
 #ifndef TESTER_NO_ALIAS
 #define TEST_CASE(name) TESTER_TEST_CASE(name)
