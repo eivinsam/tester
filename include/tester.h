@@ -26,17 +26,33 @@ namespace tester
 		static const bool value = !std::is_same_v<std::false_type, decltype(test((T*)nullptr))>;
 	};
 
-	template <class T>
-	std::enable_if_t<is_streamable<T>::value, std::ostream&> print(std::ostream& out, const T& value) { return out << value; }
-	template <class T>
-	std::enable_if_t<!is_streamable<T>::value, std::ostream&> print(std::ostream& out, const T&) { return out << '{' << typeid(T).name() << '}'; }
+	template <class T, bool = is_streamable<T>::value>
+	struct EnsurePrintable
+	{
+		const T& value;
 
-	inline std::ostream& print(std::ostream& out, const      type_info&  type) { return out << type.name(); }
-	inline std::ostream& print(std::ostream& out, const std::type_index& type) { return out << type.name(); }
+		EnsurePrintable(const T& value) : value(value) { }
+	};
+	template <class T>
+	EnsurePrintable<T> print(const T& value) { return { value }; }
+	inline const char* print(const type_info& type) { return type.name(); }
+	inline const char* print(const std::type_index& type) { return type.name(); }
 
+	template <class T>
+	std::ostream& operator<<(std::ostream& out, EnsurePrintable<T, true>&& printable)
+	{
+		return out << printable.value;
+	}
+	template <class T>
+	std::ostream& operator<<(std::ostream& out, EnsurePrintable<T, false>&&)
+	{
+		return out << '{' << typeid(T).name() << '}';
+	}
 	template <class A, class B>
-	std::ostream& print(std::ostream& out, const std::pair<A, B>& pair) { return out << '(' << pair.first << ", " << pair.second << ')'; }
-
+	std::ostream& operator<<(std::ostream& out, EnsurePrintable<std::pair<A, B>, false>&& pair)
+	{
+		return out << '(' << print(pair.value.first) << ',' << ' ' << print(pair.value.second) << ')';
+	}
 
 	template <class T>
 	class Parameter
@@ -116,7 +132,7 @@ namespace tester
 	template <typename T>
 	std::ostream& operator<<(std::ostream& out, const Result<T>& result)
 	{
-		return print(out, result.value);
+		return out << print(result.value);
 	}
 
 	template <Op OP, typename A, typename B>
@@ -138,7 +154,7 @@ namespace tester
 	template <Op OP, typename A, typename B>
 	std::ostream& operator<<(std::ostream& out, const Results<OP, A, B>& result)
 	{
-		return print(print(out, result.lhs) << ' ' << OP << ' ', result.rhs);
+		return out << print(result.lhs) << ' ' << OP << ' ' << print(result.rhs);
 	}
 
 	template <typename T>
@@ -290,15 +306,13 @@ namespace tester
 
 				for (size_t i = 0; ita != enda && itb != endb; ++ita, ++itb, ++i)
 				{
-					const auto ai = *ita;
-					const auto bi = *itb;
-					if (!Comparer<result.op>::apply(ai, bi))
+					if (!Comparer<result.op>::apply(*ita, *itb))
 					{
 						report_once(do_report);
 						if (do_report)
 							subreport <<
 							"at index " << i << ":\n"
-							"    " << ai << " " << result.op << " " << bi << "\n";
+							"    " << print(*ita) << ' ' << result.op << ' ' << print(*itb) << '\n';
 					}
 				}
 				const bool different_size = (ita != enda || itb != endb);
