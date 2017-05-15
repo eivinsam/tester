@@ -60,6 +60,8 @@ namespace tester
 	static constexpr double default_float_presicion = 1e-6;
 	static constexpr double default_double_presicion = 1e-12;
 
+	extern Parameter<std::string> section;
+
 
 	enum class Op { E, NE, L, LE, G, GE };
 

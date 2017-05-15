@@ -32,6 +32,7 @@ namespace tester
 		struct SubcaseData
 		{
 			std::string name;
+			std::string section;
 			size_t child_count = 0;
 			size_t child_index = 0;
 			size_t assert_count = 0;
@@ -70,6 +71,17 @@ namespace tester
 		return subcase_stack().empty() ?
 			_presicion :
 			subcase().presicion; 
+	});
+
+	decltype(section) section(
+		[](std::string value)
+	{
+		if (!subcase_stack().empty())
+			subcase().section = std::move(value);
+	},
+		[]
+	{
+		return subcase_stack().empty() ? "" : subcase().section;
 	});
 
 
@@ -233,11 +245,11 @@ namespace tester
 
 	std::ostream& operator<<(std::ostream& out, const Assertion& test)
 	{
-		int indent = 0;
 		for (auto& subcase : subcase_stack())
 		{
 			out << '/' << subcase.name;
-			indent += 2;
+			if (!subcase.section.empty())
+				out << ':' << subcase.section;
 		}
 		return out << '\n' <<
 			test.file << '(' << test.line << ')' << '\n' <<
