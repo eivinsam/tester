@@ -84,12 +84,12 @@ namespace tester
 	template <Op OP>
 	struct Applier { };
 
-	template <> struct Applier<Op::E>  { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a == b; } };
-	template <> struct Applier<Op::NE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a != b; } };
-	template <> struct Applier<Op::L>  { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a <  b; } };
-	template <> struct Applier<Op::LE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a <= b; } };
-	template <> struct Applier<Op::GE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a >= b; } };
-	template <> struct Applier<Op::G>  { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a >  b; } };
+	template <> struct Applier<Op::E>  { template <typename A, typename B> static bool apply(A&& a, B&& b) { return bool(a == b); } };
+	template <> struct Applier<Op::NE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return bool(a != b); } };
+	template <> struct Applier<Op::L>  { template <typename A, typename B> static bool apply(A&& a, B&& b) { return bool(a <  b); } };
+	template <> struct Applier<Op::LE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return bool(a <= b); } };
+	template <> struct Applier<Op::GE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return bool(a >= b); } };
+	template <> struct Applier<Op::G>  { template <typename A, typename B> static bool apply(A&& a, B&& b) { return bool(a >  b); } };
 
 
 	template <Op OP>
