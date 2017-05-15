@@ -272,55 +272,68 @@ namespace tester
 		}));
 	}
 
+	namespace details
+	{
+		template <template <Op> class Comparer, class Proc>
+		void check_each(AssertionOf<Proc>&& test)
+		{
+			check_noexcept(make_assertion(test.file, test.line, test.expr, [&test]
+			{
+				Assertion::increaseCount();
+				Subreport subreport;
+
+				auto report_once = once(report_failure);
+				bool do_report = false;
+				auto result = test();
+				auto ita = std::begin(result.lhs); auto enda = std::end(result.lhs);
+				auto itb = std::begin(result.rhs); auto endb = std::end(result.rhs);
+
+				for (size_t i = 0; ita != enda && itb != endb; ++ita, ++itb, ++i)
+				{
+					const auto ai = *ita;
+					const auto bi = *itb;
+					if (!Comparer<result.op>::apply(ai, bi))
+					{
+						report_once(do_report);
+						if (do_report)
+							subreport <<
+							"at index " << i << ":\n"
+							"    " << ai << " " << result.op << " " << bi << "\n";
+					}
+				}
+				const bool different_size = (ita != enda || itb != endb);
+				if (different_size)
+					report_once(do_report);
+				if (do_report)
+				{
+					auto pack_subreport = subreport.str();
+					subreport.str("");
+					if (different_size)
+					{
+						subreport <<
+							test << "failed: size mismatch\n";
+					}
+					if (!pack_subreport.empty())
+					{
+						subreport <<
+							test << "failed: element-by-element mismatch:\n" <<
+							pack_subreport;
+					}
+				}
+			}));
+		}
+	}
+
 	template <class Proc>
 	void check_each(AssertionOf<Proc>&& test)
 	{
-		check_noexcept(make_assertion(test.file, test.line, test.expr, [&test]
-		{
-			Assertion::increaseCount();
-			Subreport subreport;
-
-			auto report_once = once(report_failure);
-			bool do_report = false;
-			auto result = test();
-			auto ita = std::begin(result.lhs); auto enda = std::end(result.lhs);
-			auto itb = std::begin(result.rhs); auto endb = std::end(result.rhs);
-			
-			for (size_t i = 0; ita != enda && itb != endb; ++ita, ++itb, ++i)
-			{
-				const auto ai = *ita;
-				const auto bi = *itb;
-				if (!Applier<result.op>::apply(ai, bi))
-				{
-					report_once(do_report);
-					if (do_report)
-						subreport <<
-						"at index " << i << ":\n"
-						"    " << ai << " " << result.op << " " << bi << "\n";
-				}
-			}
-			const bool different_size = (ita != enda || itb != endb);
-			if (different_size)
-				report_once(do_report);
-			if (do_report)
-			{
-				auto pack_subreport = subreport.str();
-				subreport.str("");
-				if (different_size)
-				{
-					subreport <<
-						test << "failed: size mismatch\n";
-				}
-				if (!pack_subreport.empty())
-				{
-					subreport <<
-						test << "failed: element-by-element mismatch:\n" <<
-						pack_subreport;
-				}
-			}
-		}));
+		details::check_each<Applier>(std::move(test));
 	}
-
+	template <class Proc>
+	void check_each_approx(AssertionOf<Proc>&& test)
+	{
+		details::check_each<Approximator>(std::move(test));
+	}
 
 	class Case
 	{

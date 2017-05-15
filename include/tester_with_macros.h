@@ -7,3 +7,4 @@
 #define CHECK(expr) TESTER_CHECK(expr)
 #define CHECK_APPROX(expr) TESTER_CHECK_APPROX(expr)
 #define CHECK_EACH(expr) TESTER_CHECK_EACH(expr)
+#define CHECK_EACH_APPROX(expr) TESTER_CHECK_EACH_APPROX(expr)
