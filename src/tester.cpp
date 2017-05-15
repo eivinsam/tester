@@ -10,6 +10,7 @@ namespace tester
 {
 	Report report;
 
+	static double _presicion = default_double_presicion;
 
 	auto& cases()
 	{
@@ -34,6 +35,7 @@ namespace tester
 			size_t child_count = 0;
 			size_t child_index = 0;
 			size_t assert_count = 0;
+			double presicion = 0;
 			std::vector<AssertData> fails;
 
 			void reset() { child_count = 0; assert_count = 0; }
@@ -54,6 +56,22 @@ namespace tester
 		Expects(depth < stack.size());
 		return stack[depth];
 	}
+
+	decltype(presicion) presicion(
+		[](double value)
+	{ 
+		if (subcase_stack().empty())
+			presicion = value;
+		else
+			subcase().presicion = value; 
+	}, 
+		[] 
+	{ 
+		return subcase_stack().empty() ?
+			_presicion :
+			subcase().presicion; 
+	});
+
 
 	struct SubcaseInfo
 	{
@@ -108,7 +126,11 @@ namespace tester
 	{
 		auto& stack = subcase_stack();
 		if (subcase_depth() + 1 == stack.size())
+		{
+			const auto p = stack.back().presicion;
 			stack.emplace_back();
+			stack.back().presicion = p;
+		}
 		auto& parent = subcase();
 		return parent.child_index == parent.child_count;
 	}
@@ -161,6 +183,7 @@ namespace tester
 			Expects(subcase_stack().empty());
 			subcase_stack().emplace_back();
 			subcase().name = test.name;
+			subcase().presicion = _presicion;
 			int i = 0;
 			while (!subcase_stack().empty())
 			{
@@ -213,14 +236,12 @@ namespace tester
 		int indent = 0;
 		for (auto& subcase : subcase_stack())
 		{
-			for (int i = 0; i < indent; ++i)
-				out << ' ';
-			out << subcase.name << "\n";
+			out << '/' << subcase.name;
 			indent += 2;
 		}
-		return out <<
-			test.file << "(" << test.line << ")\n" <<
-			"    " << test.expr << "\n";
+		return out << '\n' <<
+			test.file << '(' << test.line << ')' << '\n' <<
+			"    " << test.expr << '\n';
 	}
 
 

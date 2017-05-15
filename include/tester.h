@@ -38,6 +38,29 @@ namespace tester
 	std::ostream& print(std::ostream& out, const std::pair<A, B>& pair) { return out << '(' << pair.first << ", " << pair.second << ')'; }
 
 
+	template <class T>
+	class Parameter
+	{
+		using Setter = void(*)(T);
+		using Getter = T(*)();
+
+		Setter _set;
+		Getter _get;
+	public:
+		Parameter(Setter set, Getter get) : _set(set), _get(get) { }
+
+		void operator= (T value) { _set(value); }
+		void operator()(T value) { _set(value); }
+
+		T operator()() const { return _get(); }
+	};
+
+	extern Parameter<double> presicion;
+
+	static constexpr double default_float_presicion = 1e-6;
+	static constexpr double default_double_presicion = 1e-12;
+
+
 	enum class Op { E, NE, L, LE, G, GE };
 
 	template <Op OP>
@@ -49,6 +72,32 @@ namespace tester
 	template <> struct Applier<Op::LE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a <= b; } };
 	template <> struct Applier<Op::GE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a >= b; } };
 	template <> struct Applier<Op::G>  { template <typename A, typename B> static bool apply(A&& a, B&& b) { return a >  b; } };
+
+
+	template <Op OP>
+	struct Approximator { };
+
+	template <> 
+	struct Approximator<Op::E>
+	{
+		template <typename A, typename B>
+		static bool apply(A&& a, B&& b)
+		{
+			const auto p = presicion();
+			const auto da = double(a);
+			const auto db = double(b);
+			return (da/db-1) < p && (db/da-1) < p;
+		}
+	};
+	template <>
+	struct Approximator<Op::NE>
+	{
+		template <typename A, typename B>
+		static bool apply(A&& a, B&& b)
+		{
+			return !Approximator<Op::E>::apply(std::forward<A>(a), std::forward<B>(b));
+		}
+	};
 
 	std::ostream& operator<<(std::ostream& out, Op op);
 
@@ -80,6 +129,8 @@ namespace tester
 		Results(U&& a, V&& b) : lhs(std::forward<U>(a)), rhs(std::forward<V>(b)) { }
 
 		explicit operator bool() const { return Applier<OP>::apply(lhs, rhs); }
+
+		bool approximate() const { return Approximator<OP>::apply(lhs, rhs); }
 	};
 
 	template <Op OP, typename A, typename B>
@@ -197,6 +248,28 @@ namespace tester
 			}
 		}));
 	}
+
+	template <class Proc>
+	void check_approx(AssertionOf<Proc>&& test)
+	{
+		check_noexcept(make_assertion(test.file, test.line, test.expr, [&test]
+		{
+			Assertion::increaseCount();
+			auto result = test();
+			if (result.approximate())
+			{
+
+			}
+			else
+			{
+				if (report_failure())
+					Subreport{} <<
+					test << "failed: expands to\n" <<
+					"    " << result << "\n";
+			}
+		}));
+	}
+
 	template <class Proc>
 	void check_each(AssertionOf<Proc>&& test)
 	{
@@ -299,4 +372,3 @@ namespace tester
 
 	void runTests();
 };
-
