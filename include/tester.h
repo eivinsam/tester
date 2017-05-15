@@ -290,6 +290,70 @@ namespace tester
 
 	namespace details
 	{
+		template <class T>
+		using std_begin_type = decltype(std::begin(std::declval<T>()));
+		template <class T>
+		using std_end_type = decltype(std::end(std::declval<T>()));
+
+		template <class T>
+		struct is_iterable
+		{
+			template <class = std_begin_type<T>>
+			static std::true_type test(T&&);
+			static std::false_type test(...);
+
+			static constexpr bool value = decltype(test(std::declval<T>()))::value;
+		};
+
+		static_assert(is_iterable<std::string>::value);
+		static_assert(!is_iterable<int>::value);
+
+		template <class T, bool>
+		struct anything_end
+		{
+			std_end_type<T> value;
+
+			anything_end(T& c) : value(std::end(c)) { }
+		};
+		template <class T>
+		struct anything_end<T, false>
+		{
+			anything_end(T&) { }
+		};
+
+		template <class T, bool>
+		struct anything_iterator
+		{
+			std_begin_type<T> value;
+
+			anything_iterator(T& c) : value(std::begin(c)) { }
+
+			anything_iterator& operator++() { ++value; return *this; }
+
+			auto& operator*() { return *value; }
+
+			bool operator!=(const anything_end<T, true>& end) const { return value != end.value; }
+		};
+		template <class T>
+		struct anything_iterator<T, false>
+		{
+			T& value;
+
+			anything_iterator(T& v) : value(v) { }
+
+			anything_iterator& operator++() { return *this; }
+
+			T& operator*() { return value; }
+
+			bool operator!=(const anything_end<T, false>&) const { return true; }
+		};
+
+		template <class T>
+		anything_iterator<T, is_iterable<T>::value> begin(T& x) { return { x }; }
+		template <class T>
+		anything_end<T, is_iterable<T>::value> end(T& x) { return { x }; }
+
+
 		template <template <Op> class Comparer, class Proc>
 		void check_each(AssertionOf<Proc>&& test)
 		{
@@ -301,8 +365,11 @@ namespace tester
 				auto report_once = once(report_failure);
 				bool do_report = false;
 				auto result = test();
-				auto ita = std::begin(result.lhs); auto enda = std::end(result.lhs);
-				auto itb = std::begin(result.rhs); auto endb = std::end(result.rhs);
+				static constexpr bool a_iterable = details::is_iterable<decltype(result.lhs)>::value;
+				static constexpr bool b_iterable = details::is_iterable<decltype(result.rhs)>::value;
+				static_assert(a_iterable || b_iterable, "neither side is iterable");
+				auto ita = ::tester::details::begin(result.lhs); auto enda = ::tester::details::end(result.lhs);
+				auto itb = ::tester::details::begin(result.rhs); auto endb = ::tester::details::end(result.rhs);
 
 				for (size_t i = 0; ita != enda && itb != endb; ++ita, ++itb, ++i)
 				{
@@ -315,7 +382,7 @@ namespace tester
 							"    " << print(*ita) << ' ' << result.op << ' ' << print(*itb) << '\n';
 					}
 				}
-				const bool different_size = (ita != enda || itb != endb);
+				const bool different_size = (a_iterable && b_iterable && (ita != enda || itb != endb));
 				if (different_size)
 					report_once(do_report);
 				if (do_report)
