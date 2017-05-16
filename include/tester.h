@@ -210,7 +210,8 @@ namespace tester
 		AssertionOf(const char* file, unsigned line, const char* expr, Proc&& procedure)
 			: Assertion{ file, line, expr }, _proc(std::move(procedure)) { }
 
-		auto operator()() const { return _proc(); }
+		template <class A>
+		void operator()(const A& asserter) const { _proc(asserter); }
 	};
 
 	template <class Proc>
@@ -224,7 +225,7 @@ namespace tester
 	{
 		try
 		{
-			test();
+			test([](const auto&) {});
 		}
 		catch (std::exception& e)
 		{
@@ -249,42 +250,48 @@ namespace tester
 	template <class Proc>
 	void check(AssertionOf<Proc>&& test)
 	{
-		check_noexcept(make_assertion(test.file, test.line, test.expr, [&test]
+		check_noexcept(make_assertion(test.file, test.line, test.expr, [&test](const auto& asserter)
 		{
-			Assertion::increaseCount();
-			auto result = test();
-			if (result)
+			test([&test, &asserter](const auto& result)
 			{
+				asserter(result);
+				Assertion::increaseCount();
+				if (result)
+				{
 
-			}
-			else
-			{
-				if (report_failure())
-					Subreport{} <<
-					test << "failed: expands to\n" <<
-					"    " << result << "\n";
-			}
+				}
+				else
+				{
+					if (report_failure())
+						Subreport{} <<
+						test << "failed: expands to\n" <<
+						"    " << result << "\n";
+				}
+			});
 		}));
 	}
 
 	template <class Proc>
 	void check_approx(AssertionOf<Proc>&& test)
 	{
-		check_noexcept(make_assertion(test.file, test.line, test.expr, [&test]
+		check_noexcept(make_assertion(test.file, test.line, test.expr, [&test](const auto& asserter)
 		{
-			Assertion::increaseCount();
-			auto result = test();
-			if (result.approximate())
+			test([&test, &asserter](const auto& result)
 			{
+				asserter(result);
+				Assertion::increaseCount();
+				if (result.approximate())
+				{
 
-			}
-			else
-			{
-				if (report_failure())
-					Subreport{} <<
-					test << "failed: expands to\n" <<
-					"    " << result << "\n";
-			}
+				}
+				else
+				{
+					if (report_failure())
+						Subreport{} <<
+						test << "failed: expands to\n" <<
+						"    " << result << "\n";
+				}
+			});
 		}));
 	}
 
@@ -353,54 +360,58 @@ namespace tester
 		template <class T>
 		anything_end<T, is_iterable<T>::value> end(T& x) { return { x }; }
 
-
 		template <template <Op> class Comparer, class Proc>
 		void check_each(AssertionOf<Proc>&& test)
 		{
-			check_noexcept(make_assertion(test.file, test.line, test.expr, [&test]
+			check_noexcept(make_assertion(test.file, test.line, test.expr, [&test](const auto& asserter)
 			{
-				Assertion::increaseCount();
-				Subreport subreport;
-
-				auto report_once = once(report_failure);
-				bool do_report = false;
-				auto result = test();
-				static constexpr bool a_iterable = details::is_iterable<decltype(result.lhs)>::value;
-				static constexpr bool b_iterable = details::is_iterable<decltype(result.rhs)>::value;
-				static_assert(a_iterable || b_iterable, "neither side is iterable");
-				auto ita = ::tester::details::begin(result.lhs); auto enda = ::tester::details::end(result.lhs);
-				auto itb = ::tester::details::begin(result.rhs); auto endb = ::tester::details::end(result.rhs);
-
-				for (size_t i = 0; ita != enda && itb != endb; ++ita, ++itb, ++i)
+				test([&test,&asserter](const auto& result)
 				{
-					if (!Comparer<result.op>::apply(*ita, *itb))
+					asserter(result);
+					Assertion::increaseCount();
+					Subreport subreport;
+
+					auto report_once = once(report_failure);
+					bool do_report = false;
+					static constexpr bool a_iterable = details::is_iterable<decltype(result.lhs)>::value;
+					static constexpr bool b_iterable = details::is_iterable<decltype(result.rhs)>::value;
+					static_assert(a_iterable || b_iterable, "neither side is iterable");
+					auto ita = ::tester::details::begin(result.lhs); auto enda = ::tester::details::end(result.lhs);
+					auto itb = ::tester::details::begin(result.rhs); auto endb = ::tester::details::end(result.rhs);
+
+					for (size_t i = 0; ita != enda && itb != endb; ++ita, ++itb, ++i)
 					{
-						report_once(do_report);
-						if (do_report)
-							subreport <<
-							"at index " << i << ":\n"
-							"    " << print(*ita) << ' ' << result.op << ' ' << print(*itb) << '\n';
+						if (!Comparer<result.op>::apply(*ita, *itb))
+						{
+							report_once(do_report);
+							if (do_report)
+							{
+								subreport <<
+									"at index " << i << ":\n"
+									"    " << print(*ita) << ' ' << result.op << ' ' << print(*itb) << '\n';
+							}
+						}
 					}
-				}
-				const bool different_size = (a_iterable && b_iterable && (ita != enda || itb != endb));
-				if (different_size)
-					report_once(do_report);
-				if (do_report)
-				{
-					auto pack_subreport = subreport.str();
-					subreport.str("");
+					const bool different_size = (a_iterable && b_iterable && (ita != enda || itb != endb));
 					if (different_size)
+						report_once(do_report);
+					if (do_report)
 					{
-						subreport <<
-							test << "failed: size mismatch\n";
+						auto pack_subreport = subreport.str();
+						subreport.str("");
+						if (different_size)
+						{
+							subreport <<
+								test << "failed: size mismatch\n";
+						}
+						if (!pack_subreport.empty())
+						{
+							subreport <<
+								test << "failed: element-by-element mismatch:\n" <<
+								pack_subreport;
+						}
 					}
-					if (!pack_subreport.empty())
-					{
-						subreport <<
-							test << "failed: element-by-element mismatch:\n" <<
-							pack_subreport;
-					}
-				}
+				});
 			}));
 		}
 	}
