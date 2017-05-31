@@ -128,14 +128,13 @@ namespace tester
 
 		explicit operator bool() const { return bool(value); }
 	};
-
 	template <typename T>
 	std::ostream& operator<<(std::ostream& out, const Result<T>& result)
 	{
 		return out << print(result.value);
 	}
 
-	template <Op OP, typename A, typename B>
+	template <typename A, Op OP, typename B>
 	struct Results
 	{
 		static constexpr Op op = OP;
@@ -150,23 +149,68 @@ namespace tester
 
 		bool approximate() const { return Approximator<OP>::apply(lhs, rhs); }
 	};
-
-	template <Op OP, typename A, typename B>
-	std::ostream& operator<<(std::ostream& out, const Results<OP, A, B>& result)
+	template <typename A, Op OP, typename B>
+	std::ostream& operator<<(std::ostream& out, const Results<A, OP, B>& result)
 	{
-		return out << print(result.lhs) << ' ' << OP << ' ' << print(result.rhs);
+		return out << 
+			print(result.lhs) << ' ' << OP << ' ' << 
+			print(result.rhs);
+	}
+
+	template <typename A, Op OP0, typename B, Op OP1, typename C>
+	struct Resultss
+	{
+		static constexpr Op op0 = OP0;
+		static constexpr Op op1 = OP1;
+
+		A left;
+		B center;
+		C right;
+
+		template <class U, class V, class W>
+		Resultss(U&& a, V&& b, W&& c) : left(std::forward<U>(a)), center(std::forward<V>(b)), right(std::forward<W>(c)) { }
+
+		explicit operator bool() const { return Applier<OP0>::apply(left, center) && Applier<OP1>::apply(center, right); }
+
+		bool approximate() const { return Approximator<OP0>::apply(left, center) && Approximator<OP1>::apply(center, right); }
+	};
+	template <typename A, Op OP0, typename B, Op OP1, typename C>
+	std::ostream& operator<<(std::ostream& out, const Resultss<A, OP0, B, OP1, C>& result)
+	{
+		return out << 
+			print(result.left)   << ' ' << OP0 << ' ' << 
+			print(result.center) << ' ' << OP1 << ' ' << 
+			print(result.right);
 	}
 
 	template <typename T>
 	Result<T> operator<<(Split&&, T&& value) { return { std::forward<T>(value) }; }
 
-	template <class A, class B> auto operator==(Result<A>&& lhsr, B&& rhs) { return Results<Op::E,  A, B>{ std::forward<A>(lhsr.value), std::forward<B>(rhs) }; }
-	template <class A, class B> auto operator!=(Result<A>&& lhsr, B&& rhs) { return Results<Op::NE, A, B>{ std::forward<A>(lhsr.value), std::forward<B>(rhs) }; }
-	template <class A, class B> auto operator< (Result<A>&& lhsr, B&& rhs) { return Results<Op::L,  A, B>{ std::forward<A>(lhsr.value), std::forward<B>(rhs) }; }
-	template <class A, class B> auto operator<=(Result<A>&& lhsr, B&& rhs) { return Results<Op::LE, A, B>{ std::forward<A>(lhsr.value), std::forward<B>(rhs) }; }
-	template <class A, class B> auto operator>=(Result<A>&& lhsr, B&& rhs) { return Results<Op::GE, A, B>{ std::forward<A>(lhsr.value), std::forward<B>(rhs) }; }
-	template <class A, class B> auto operator> (Result<A>&& lhsr, B&& rhs) { return Results<Op::G,  A, B>{ std::forward<A>(lhsr.value), std::forward<B>(rhs) }; }
+#pragma push_macro("DEFINE_OP")
+#define DEFINE_OP(op, code) template <class A, class B>\
+	auto operator##op(Result<A>&& lhs, B&& rhs)\
+	{ return Results<A, code, B>{ std::forward<A>(lhs.value), std::forward<B>(rhs) }; }
 
+	DEFINE_OP(== , Op::E);
+	DEFINE_OP(!= , Op::NE);
+	DEFINE_OP(<  , Op::L);
+	DEFINE_OP(<= , Op::LE);
+	DEFINE_OP(>= , Op::GE);
+	DEFINE_OP(>  , Op::G);
+
+#undef DEFINE_OP
+#define DEFINE_OP(op, code) template <class A, Op OP0, class B, class C>\
+	auto operator##op(Results<A, OP0, B>&& lhs, C&& rhs)\
+	{ return Resultss<A, OP0, B, code, C>{ std::forward<A>(lhs.lhs), std::forward<B>(lhs.rhs), std::forward<C>(rhs) }; }
+
+	DEFINE_OP(== , Op::E);
+	DEFINE_OP(!= , Op::NE);
+	DEFINE_OP(<  , Op::L);
+	DEFINE_OP(<= , Op::LE);
+	DEFINE_OP(>= , Op::GE);
+	DEFINE_OP(>  , Op::G);
+
+#pragma pop_macro("DEFINE_OP")
 
 	bool report_failure();
 
