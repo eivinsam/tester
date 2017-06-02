@@ -84,12 +84,12 @@ namespace tester
 	template <Op OP>
 	struct Applier { };
 
-	template <> struct Applier<Op::E>  { template <typename A, typename B> static bool apply(A&& a, B&& b) { return bool(a == b); } };
-	template <> struct Applier<Op::NE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return bool(a != b); } };
-	template <> struct Applier<Op::L>  { template <typename A, typename B> static bool apply(A&& a, B&& b) { return bool(a <  b); } };
-	template <> struct Applier<Op::LE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return bool(a <= b); } };
-	template <> struct Applier<Op::GE> { template <typename A, typename B> static bool apply(A&& a, B&& b) { return bool(a >= b); } };
-	template <> struct Applier<Op::G>  { template <typename A, typename B> static bool apply(A&& a, B&& b) { return bool(a >  b); } };
+	template <> struct Applier<Op::E>  { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a == b); } };
+	template <> struct Applier<Op::NE> { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a != b); } };
+	template <> struct Applier<Op::L>  { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a <  b); } };
+	template <> struct Applier<Op::LE> { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a <= b); } };
+	template <> struct Applier<Op::GE> { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a >= b); } };
+	template <> struct Applier<Op::G>  { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a >  b); } };
 
 
 	template <Op OP>
@@ -99,7 +99,7 @@ namespace tester
 	struct Approximator<Op::E>
 	{
 		template <typename A, typename B>
-		static bool apply(A&& a, B&& b)
+		static bool apply(const A& a, const B& b)
 		{
 			const auto p = presicion();
 			const auto da = double(a);
@@ -115,9 +115,9 @@ namespace tester
 	struct Approximator<Op::NE>
 	{
 		template <typename A, typename B>
-		static bool apply(A&& a, B&& b)
+		static bool apply(const A& a, const B& b)
 		{
-			return !Approximator<Op::E>::apply(std::forward<A>(a), std::forward<B>(b));
+			return !Approximator<Op::E>::apply(a, b);
 		}
 	};
 
