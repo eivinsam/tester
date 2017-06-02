@@ -104,6 +104,10 @@ namespace tester
 			const auto p = presicion();
 			const auto da = double(a);
 			const auto db = double(b);
+			// If either argument is equal to zero, fall back to absolute presicion
+			if (da == 0) return abs(db) < p;
+			if (db == 0) return abs(da) < p;
+			// Use relative presicion!
 			return (da/db-1) < p && (db/da-1) < p;
 		}
 	};
