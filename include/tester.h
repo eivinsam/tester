@@ -91,6 +91,15 @@ namespace tester
 	template <> struct Applier<Op::GE> { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a >= b); } };
 	template <> struct Applier<Op::G>  { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a >  b); } };
 
+	template <class T>
+	struct Magnitude { double operator()(const T& x) const { return abs(x); } };
+	template <class T>
+	double magnitude(const T& x) { return Magnitude<T>{}(x); }
+
+	template <class A, class B>
+	struct Difference { double operator()(const A& a, const B& b) const { return magnitude(a - b); } };
+	template <class A, class B>
+	double difference(const A& a, const B& b) { return Difference<A, B>{}(a, b); }
 
 	template <Op OP>
 	struct Approximator { };
@@ -102,13 +111,13 @@ namespace tester
 		static bool apply(const A& a, const B& b)
 		{
 			const auto p = presicion();
-			const auto da = double(a);
-			const auto db = double(b);
+			const auto ma = magnitude(a);
+			const auto mb = magnitude(b);
+			const auto mm = std::sqrt(ma*mb); // geometric average
 			// If either argument is equal to zero, fall back to absolute presicion
-			if (da == 0) return abs(db) < p;
-			if (db == 0) return abs(da) < p;
+			if (mm == 0) return ma < p && mb < p;
 			// Use relative presicion!
-			return (da/db-1) < p && (db/da-1) < p;
+			return (difference(a, b) / mm) < p;
 		}
 	};
 	template <>
