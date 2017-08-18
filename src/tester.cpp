@@ -62,7 +62,7 @@ namespace tester
 		[](double value)
 	{ 
 		if (subcase_stack().empty())
-			presicion = value;
+			_presicion = value;
 		else
 			subcase().presicion = value; 
 	}, 
@@ -76,8 +76,13 @@ namespace tester
 	decltype(section) section(
 		[](std::string value)
 	{
-		if (!subcase_stack().empty())
-			subcase().section = std::move(value);
+		auto& stack = subcase_stack();
+		const auto depth = subcase_depth();
+		if (depth < stack.size())
+		{
+			stack[depth].section = std::move(value);
+			stack[depth].presicion = depth > 0 ? stack[depth - 1].presicion : _presicion;
+		}
 	},
 		[]
 	{
