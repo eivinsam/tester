@@ -63,10 +63,15 @@ namespace tester
 		Setter _set;
 		Getter _get;
 	public:
+		Parameter() = delete;
+		Parameter(Parameter&&) = delete;
+		Parameter(const Parameter&) = delete;
 		Parameter(Setter set, Getter get) : _set(set), _get(get) { }
 
-		void operator= (T value) { _set(value); }
-		void operator()(T value) { _set(value); }
+		Parameter& operator=(Parameter&&) = delete;
+		Parameter& operator=(const Parameter&) = delete;
+		template <class A> void operator= (A value) { _set(std::move(value)); }
+		template <class A> void operator()(A value) { _set(std::move(value)); }
 
 		T operator()() const { return _get(); }
 	};
