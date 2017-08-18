@@ -201,7 +201,7 @@ namespace tester
 
 #pragma push_macro("DEFINE_OP")
 #define DEFINE_OP(op, code) template <class A, class B>\
-	auto operator##op(Result<A>&& lhs, B&& rhs)\
+	auto operator op(Result<A>&& lhs, B&& rhs)\
 	{ return Results<A, code, B>{ std::forward<A>(lhs.value), std::forward<B>(rhs) }; }
 
 	DEFINE_OP(== , Op::E);
@@ -213,7 +213,7 @@ namespace tester
 
 #undef DEFINE_OP
 #define DEFINE_OP(op, code) template <class A, Op OP0, class B, class C>\
-	auto operator##op(Results<A, OP0, B>&& lhs, C&& rhs)\
+	auto operator op(Results<A, OP0, B>&& lhs, C&& rhs)\
 	{ return Resultss<A, OP0, B, code, C>{ std::forward<A>(lhs.lhs), std::forward<B>(lhs.rhs), std::forward<C>(rhs) }; }
 
 	DEFINE_OP(== , Op::E);
@@ -363,8 +363,8 @@ namespace tester
 		template <class T>
 		struct is_iterable
 		{
-			template <class = std_begin_type<T>>
-			static std::true_type test(T&&);
+			template <class U, class = std_begin_type<U>>
+			static std::true_type test(U&&);
 			static std::false_type test(...);
 
 			static constexpr bool value = decltype(test(std::declval<T>()))::value;
@@ -425,6 +425,7 @@ namespace tester
 			{
 				test([&test,&asserter](const auto& result)
 				{
+					using result_type = std::decay_t<decltype(result)>;
 					asserter(result);
 					Assertion::increaseCount();
 					Subreport subreport;
@@ -439,7 +440,7 @@ namespace tester
 
 					for (size_t i = 0; ita != enda && itb != endb; ++ita, ++itb, ++i)
 					{
-						if (!Comparer<result.op>::apply(*ita, *itb))
+						if (!Comparer<result_type::op>::apply(*ita, *itb))
 						{
 							report_once(do_report);
 							if (do_report)
