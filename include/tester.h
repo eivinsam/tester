@@ -97,7 +97,7 @@ namespace tester
 	template <> struct Applier<Op::G>  { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a >  b); } };
 
 	template <class T>
-	struct Magnitude { double operator()(const T& x) const { return double(abs(x)); } };
+	struct Magnitude { double operator()(const T& x) const { return double(std::abs(x)); } };
 	template <class T>
 	double magnitude(const T& x) { return Magnitude<T>{}(x); }
 
