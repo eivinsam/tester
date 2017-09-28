@@ -12,17 +12,17 @@ namespace tester
 
 	static double _presicion = default_double_presicion;
 
-	auto& cases()
+	struct CaseData
 	{
-		struct CaseData
-		{
-			const char* name;
-			Case::Procedure proc;
-		};
+		const char* name;
+		Case::Procedure proc;
+	};
+	static auto& cases()
+	{
 		static std::vector<CaseData> data; 
 		return data;
 	}
-	auto& subcase_stack()
+	static auto& subcase_stack()
 	{
 		struct AssertData
 		{
@@ -44,13 +44,13 @@ namespace tester
 		static std::vector<SubcaseData> data;
 		return data;
 	}
-	auto& subcase_depth()
+	static auto& subcase_depth()
 	{
 		static size_t depth;
 		return depth;
 	}
 	//auto& parent_subcase() { return subcase_stack()[subcase_depth() - 1]; }
-	auto& subcase()
+	static auto& subcase()
 	{
 		auto& stack = subcase_stack();
 		auto depth = subcase_depth();
@@ -93,13 +93,24 @@ namespace tester
 	struct SubcaseInfo
 	{
 		std::string id;
+		std::string exception;
 		size_t assert_count = 0;
 		size_t fail_count   = 0;
 	};
 
-	SubcaseInfo subcase_report()
+	static SubcaseInfo runCase(const CaseData& test)
 	{
 		SubcaseInfo result;
+		try { test.proc(); }
+		catch (std::exception& e)
+		{
+			result.exception = typeid(e).name() + std::string(":\n(") + e.what() + ")";
+		}
+		catch (...)
+		{
+			result.exception = "unknown exception";
+		}
+
 		auto& stack = subcase_stack();
 
 		for (size_t i = 0; i < stack.size(); ++i)
@@ -124,7 +135,7 @@ namespace tester
 		}
 		return result;
 	}
-	void increase_subcase_index()
+	static void increase_subcase_index()
 	{
 		auto& stack = subcase_stack();
 		while (!stack.empty())
@@ -139,7 +150,7 @@ namespace tester
 		return;
 	}
 
-	bool shall_enter()
+	static bool shall_enter()
 	{
 		auto& stack = subcase_stack();
 		if (subcase_depth() + 1 == stack.size())
@@ -188,13 +199,11 @@ namespace tester
 		return false;
 	}
 
-	void runTests()
+	TestResults runTests()
 	{
 		using namespace std::chrono;
 		auto then = high_resolution_clock::now();
-		size_t subcase_count = 0;
-		size_t assert_count = 0;
-		size_t fail_count = 0;
+		TestResults result;
 		for (auto& test : cases())
 		{
 			Expects(subcase_stack().empty());
@@ -204,17 +213,25 @@ namespace tester
 			int i = 0;
 			while (!subcase_stack().empty())
 			{
-				subcase_count += 1;
+				result.subcase_count += 1;
 				subcase().reset();
-				test.proc();
 
-				auto info = subcase_report();
-				if (info.fail_count > 0)
-					report << "subcase " << info.id << " done\n"
-					<< info.assert_count << " assertions\n"
-					<< info.fail_count << " failures\n\n";
-				assert_count += info.assert_count;
-				fail_count += info.fail_count;
+				auto info = runCase(test);
+
+				if (info.exception.empty())
+				{
+					if (info.fail_count > 0)
+						report << "subcase " << info.id << " done\n";
+				}
+				else
+				{
+					report << "subcase " << info.id << " threw " << info.exception << "\nafter ";
+					result.uncaught_exceptions += 1;
+				}
+				if (info.fail_count > 0 || !info.exception.empty())
+					report << info.fail_count << " failures / " << info.assert_count << " assertions\n\n";
+				result.assert_count += info.assert_count;
+				result.fail_count += info.fail_count;
 
 
 				increase_subcase_index();
@@ -224,9 +241,11 @@ namespace tester
 		auto dt = duration<double>(high_resolution_clock::now() - then);
 		report << "tests done in " << dt.count() << "s\n"
 			<< cases().size() << " cases\n" 
-			<< subcase_count << " subcases\n"
-			<< assert_count << " asserts\n"
-			<< fail_count << " failures\n";
+			<< result.subcase_count << " subcases\n"
+			<< result.assert_count << " asserts\n"
+			<< result.fail_count << " failures\n"
+			<< result.uncaught_exceptions << " uncaught exceptions\n";
+		return result;
 	}
 
 	Subreport::~Subreport()
@@ -266,12 +285,12 @@ namespace tester
 	{
 		switch (op)
 		{
-		case Op::E:  return out << "==";
+		case Op::EQ:  return out << "==";
 		case Op::NE: return out << "!=";
-		case Op::L:  return out << "<";
+		case Op::SL:  return out << "<";
 		case Op::LE: return out << "<=";
 		case Op::GE: return out << ">=";
-		case Op::G:  return out << ">";
+		case Op::SG:  return out << ">";
 		default: return out << "!!";
 		}
 	}

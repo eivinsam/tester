@@ -84,20 +84,20 @@ namespace tester
 	extern Parameter<std::string> section;
 
 
-	enum class Op { E, NE, L, LE, G, GE };
+	enum class Op { EQ, NE, SL, LE, SG, GE };
 
 	template <Op OP>
-	struct Applier { };
+	struct Applier { template <typename A, typename B> static bool apply(const A& a, const B& b); };
 
-	template <> struct Applier<Op::E>  { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a == b); } };
+	template <> struct Applier<Op::EQ> { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a == b); } };
 	template <> struct Applier<Op::NE> { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a != b); } };
-	template <> struct Applier<Op::L>  { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a <  b); } };
+	template <> struct Applier<Op::SL> { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a <  b); } };
 	template <> struct Applier<Op::LE> { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a <= b); } };
 	template <> struct Applier<Op::GE> { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a >= b); } };
-	template <> struct Applier<Op::G>  { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a >  b); } };
+	template <> struct Applier<Op::SG> { template <typename A, typename B> static bool apply(const A& a, const B& b) { return bool(a >  b); } };
 
 	template <class T>
-	struct Magnitude { double operator()(const T& x) const { return double(std::abs(x)); } };
+	struct Magnitude { double operator()(const T& x) const { return double(abs(x)); } };
 	template <class T>
 	double magnitude(const T& x) { return Magnitude<T>{}(x); }
 
@@ -110,7 +110,7 @@ namespace tester
 	struct Approximator { };
 
 	template <> 
-	struct Approximator<Op::E>
+	struct Approximator<Op::EQ>
 	{
 		template <typename A, typename B>
 		static bool apply(const A& a, const B& b)
@@ -131,126 +131,94 @@ namespace tester
 		template <typename A, typename B>
 		static bool apply(const A& a, const B& b)
 		{
-			return !Approximator<Op::E>::apply(a, b);
+			return !Approximator<Op::EQ>::apply(a, b);
 		}
 	};
 
 	std::ostream& operator<<(std::ostream& out, Op op);
 
 	struct Split { };
+	static constexpr Split split = {};
 
-	template <typename T>
-	struct Result
-	{
-		T value;
 
-		explicit operator bool() const { return bool(value); }
-	};
-	template <typename T>
-	std::ostream& operator<<(std::ostream& out, const Result<T>& result)
+	namespace result
 	{
-		return out << print(result.value);
+		static constexpr Op EQ = Op::EQ;
+		static constexpr Op NE = Op::NE;
+		static constexpr Op SL = Op::SL;
+		static constexpr Op LE = Op::LE;
+		static constexpr Op GE = Op::GE;
+		static constexpr Op SG = Op::SG;
+
+		template <class T, Op OP>
+		struct TypeOp { };
+
+		template <class Last, class... Rest>
+		struct Type
+		{
+			static_assert(sizeof...(Rest) == 0);
+
+			Last last;
+
+			Type(Last last) : last(last) { }
+
+			explicit operator bool() const { return bool(last); }
+			constexpr bool approximate() const { return true; }
+
+			void print(std::ostream& out) const
+			{
+				out << tester::print(last);
+			}
+		};
+
+		template <class Last, class Next, Op LO, class... Rest>
+		struct Type<Last, TypeOp<Next, LO>, Rest...>
+		{
+			using RestType = Type<Next, Rest...>;
+			RestType rest;
+			Last last;
+
+			Type(const RestType& rest, Last last) : rest(rest), last(last) { }
+
+			explicit operator bool() const
+			{ 
+				const bool next_and_last = { Applier<LO>::apply(rest.last, last) };
+				if constexpr (sizeof...(Rest) > 0)
+					return bool(rest) && next_and_last;
+				else
+					return next_and_last;
+			}
+			bool approximate() const { return rest.approximate() && Approximator<LO>::apply(rest.last, last); }
+
+			void print(std::ostream& out) const
+			{
+				rest.print(out);
+				out << LO << tester::print(last);
+			}
+
+		};
+
+		template <class Last, class... Rest>
+		std::ostream& operator<<(std::ostream& out, const Type<Last, Rest...>& result)
+		{
+			result.print(out);
+			return out;
+		}
+
+		template <class L, class N, class... R> Type<L, TypeOp<N, EQ>, R...> operator==(const Type<N, R...>& rest, L&& last) { return { rest, std::forward<L>(last) }; }
+		template <class L, class N, class... R> Type<L, TypeOp<N, NE>, R...> operator!=(const Type<N, R...>& rest, L&& last) { return { rest, std::forward<L>(last) }; }
+		template <class L, class N, class... R> Type<L, TypeOp<N, SL>, R...> operator< (const Type<N, R...>& rest, L&& last) { return { rest, std::forward<L>(last) }; }
+		template <class L, class N, class... R> Type<L, TypeOp<N, LE>, R...> operator<=(const Type<N, R...>& rest, L&& last) { return { rest, std::forward<L>(last) }; }
+		template <class L, class N, class... R> Type<L, TypeOp<N, GE>, R...> operator>=(const Type<N, R...>& rest, L&& last) { return { rest, std::forward<L>(last) }; }
+		template <class L, class N, class... R> Type<L, TypeOp<N, SG>, R...> operator> (const Type<N, R...>& rest, L&& last) { return { rest, std::forward<L>(last) }; }
 	}
 
-	template <typename A, Op OP, typename B>
-	struct Results
-	{
-		static constexpr Op op = OP;
-
-		A lhs;
-		B rhs;
-
-		template <class U, class V>
-		Results(U&& a, V&& b) : lhs(std::forward<U>(a)), rhs(std::forward<V>(b)) { }
-
-		explicit operator bool() const { return Applier<OP>::apply(lhs, rhs); }
-
-		bool approximate() const { return Approximator<OP>::apply(lhs, rhs); }
-	};
-	template <typename A, Op OP, typename B>
-	std::ostream& operator<<(std::ostream& out, const Results<A, OP, B>& result)
-	{
-		return out << 
-			print(result.lhs) << ' ' << OP << ' ' << 
-			print(result.rhs);
-	}
-
-	template <typename A, Op OP0, typename B, Op OP1, typename C>
-	struct Resultss
-	{
-		static constexpr Op op0 = OP0;
-		static constexpr Op op1 = OP1;
-
-		A left;
-		B center;
-		C right;
-
-		template <class U, class V, class W>
-		Resultss(U&& a, V&& b, W&& c) : left(std::forward<U>(a)), center(std::forward<V>(b)), right(std::forward<W>(c)) { }
-
-		explicit operator bool() const { return Applier<OP0>::apply(left, center) && Applier<OP1>::apply(center, right); }
-
-		bool approximate() const { return Approximator<OP0>::apply(left, center) && Approximator<OP1>::apply(center, right); }
-	};
-	template <typename A, Op OP0, typename B, Op OP1, typename C>
-	std::ostream& operator<<(std::ostream& out, const Resultss<A, OP0, B, OP1, C>& result)
-	{
-		return out << 
-			print(result.left)   << ' ' << OP0 << ' ' << 
-			print(result.center) << ' ' << OP1 << ' ' << 
-			print(result.right);
-	}
-
 	template <typename T>
-	Result<T> operator<<(Split&&, T&& value) { return { std::forward<T>(value) }; }
+	result::Type<T> operator<<(const Split&, T&& value) { return { std::forward<T>(value) }; }
 
-#pragma push_macro("DEFINE_OP")
-#define DEFINE_OP(op, code) template <class A, class B>\
-	auto operator op(Result<A>&& lhs, B&& rhs)\
-	{ return Results<A, code, B>{ std::forward<A>(lhs.value), std::forward<B>(rhs) }; }
-
-	DEFINE_OP(== , Op::E);
-	DEFINE_OP(!= , Op::NE);
-	DEFINE_OP(<  , Op::L);
-	DEFINE_OP(<= , Op::LE);
-	DEFINE_OP(>= , Op::GE);
-	DEFINE_OP(>  , Op::G);
-
-#undef DEFINE_OP
-#define DEFINE_OP(op, code) template <class A, Op OP0, class B, class C>\
-	auto operator op(Results<A, OP0, B>&& lhs, C&& rhs)\
-	{ return Resultss<A, OP0, B, code, C>{ std::forward<A>(lhs.lhs), std::forward<B>(lhs.rhs), std::forward<C>(rhs) }; }
-
-	DEFINE_OP(== , Op::E);
-	DEFINE_OP(!= , Op::NE);
-	DEFINE_OP(<  , Op::L);
-	DEFINE_OP(<= , Op::LE);
-	DEFINE_OP(>= , Op::GE);
-	DEFINE_OP(>  , Op::G);
-
-#pragma pop_macro("DEFINE_OP")
 
 	bool report_failure();
 
-	template <class F>
-	class Once
-	{
-		F    _func;
-		bool _done;
-	public:
-		using result_t = std::result_of_t<F()>;
-
-		Once(F&& f) : _func(f), _done(false) { }
-
-		result_t operator()() { _done = true; return _func(); }
-
-		void operator()(result_t& result) { if (!_done) result = (*this)(); }
-
-		explicit operator bool() const { return !_done; }
-	};
-
-	template <class F>
-	Once<F> once(F&& f) { return { std::forward<F>(f) }; }
 
 
 	class Assertion
@@ -262,100 +230,63 @@ namespace tester
 
 		static void increaseCount();
 	};
+
 	std::ostream& operator<<(std::ostream& out, const Assertion& test);
 
 	template <class Proc>
-	class AssertionOf : public Assertion
+	void check_noexcept(const Assertion& info, const Proc& test)
 	{
-		Proc _proc;
-	public:
-		AssertionOf(const char* file, unsigned line, const char* expr, Proc&& procedure)
-			: Assertion{ file, line, expr }, _proc(std::move(procedure)) { }
-
-		template <class A>
-		void operator()(const A& asserter) const { _proc(asserter); }
-	};
-
-	template <class Proc>
-	AssertionOf<Proc> make_assertion(const char* file, unsigned line, const char* expr, Proc&& proc) 
-	{
-		return { file, line, expr, std::forward<Proc>(proc) }; 
-	}
-
-	template <class Proc>
-	void check_noexcept(AssertionOf<Proc>&& test)
-	{
+		Assertion::increaseCount();
 		try
 		{
-			test([](const auto&) {});
+			test();
 		}
 		catch (std::exception& e)
 		{
-			Assertion::increaseCount();
 			if (report_failure()) 
 				Subreport{} <<
-				test << "failed:\n" <<
+				info << "failed:\n" <<
 				"    threw " << (typeid(e).name() + 6) << " with message:\n" <<
 				"      " << e.what() << "\n";
 		}
 		catch (...)
 		{
-			Assertion::increaseCount();
 			if (report_failure())
 				Subreport{} <<
-				test << "failed:\n" <<
+				info << "failed:\n" <<
 				"    threw unknown exception\n";
 		}
 
 	}
 
-	template <class Proc>
-	void check(AssertionOf<Proc>&& test)
+	template <class Result>
+	void check(const Assertion& info, const Result& result)
 	{
-		check_noexcept(make_assertion(test.file, test.line, test.expr, [&test](const auto& asserter)
+		Assertion::increaseCount();
+		if (!result)
 		{
-			test([&test, &asserter](const auto& result)
-			{
-				asserter(result);
-				Assertion::increaseCount();
-				if (result)
-				{
-
-				}
-				else
-				{
-					if (report_failure())
-						Subreport{} <<
-						test << "failed: expands to\n" <<
-						"    " << result << "\n";
-				}
-			});
-		}));
+			if (report_failure())
+				Subreport{} <<
+				info << "failed: expands to\n" <<
+				"    " << result << "\n";
+		}
 	}
 
-	template <class Proc>
-	void check_approx(AssertionOf<Proc>&& test)
+	template <class First, class Last, Op OP>
+	void check_approx(const Assertion& info, const result::Type<Last, result::TypeOp<First, OP>>& result)
 	{
-		check_noexcept(make_assertion(test.file, test.line, test.expr, [&test](const auto& asserter)
+		Assertion::increaseCount();
+		if (!result.approximate())
 		{
-			test([&test, &asserter](const auto& result)
+			if (report_failure())
 			{
-				asserter(result);
-				Assertion::increaseCount();
-				if (result.approximate())
-				{
+				Subreport{}
+					<< info << "failed: expands to\n"
+					<< "    " << result
+					<< "  (difference: " << difference(result.rest.last, result.last) << ")\n";
 
-				}
-				else
-				{
-					if (report_failure())
-						Subreport{} <<
-						test << "failed: expands to\n" <<
-						"    " << result << "\n"
-						"  (difference: " << difference(result.lhs, result.rhs) << ")\n";
-				}
-			});
-		}));
+			}
+		}
 	}
 
 	namespace details
@@ -423,72 +354,68 @@ namespace tester
 		template <class T>
 		anything_end<T, is_iterable<T>::value> end(T& x) { return { x }; }
 
-		template <template <Op> class Comparer, class Proc>
-		void check_each(AssertionOf<Proc>&& test)
+		template <template <Op> class Comparer, class First, class Last, Op OP>
+		void check_each(const Assertion& info, const result::Type<Last, result::TypeOp<First, OP>>& result)
 		{
-			check_noexcept(make_assertion(test.file, test.line, test.expr, [&test](const auto& asserter)
+			using result_type = std::decay_t<decltype(result)>;
+			Assertion::increaseCount();
+			Subreport subreport;
+
+			bool no_report = true;
+			bool print_report = false;
+			auto report_once = [&] { if (no_report) { print_report = report_failure(); no_report = false; } };
+			static constexpr bool a_iterable = details::is_iterable<decltype(result.rest.last)>::value;
+			static constexpr bool b_iterable = details::is_iterable<decltype(result.last)>::value;
+			static_assert(a_iterable || b_iterable, "neither side is iterable");
+			auto ita  = ::tester::details::begin(result.rest.last); 
+			auto enda = ::tester::details::end  (result.rest.last);
+			auto itb  = ::tester::details::begin(result.last); 
+			auto endb = ::tester::details::end  (result.last);
+
+			for (size_t i = 0; ita != enda && itb != endb; ++ita, ++itb, ++i)
 			{
-				test([&test,&asserter](const auto& result)
+				if (!Comparer<OP>::apply(*ita, *itb))
 				{
-					using result_type = std::decay_t<decltype(result)>;
-					asserter(result);
-					Assertion::increaseCount();
-					Subreport subreport;
-
-					auto report_once = once(report_failure);
-					bool do_report = false;
-					static constexpr bool a_iterable = details::is_iterable<decltype(result.lhs)>::value;
-					static constexpr bool b_iterable = details::is_iterable<decltype(result.rhs)>::value;
-					static_assert(a_iterable || b_iterable, "neither side is iterable");
-					auto ita = ::tester::details::begin(result.lhs); auto enda = ::tester::details::end(result.lhs);
-					auto itb = ::tester::details::begin(result.rhs); auto endb = ::tester::details::end(result.rhs);
-
-					for (size_t i = 0; ita != enda && itb != endb; ++ita, ++itb, ++i)
+					report_once();
+					if (print_report)
 					{
-						if (!Comparer<result_type::op>::apply(*ita, *itb))
-						{
-							report_once(do_report);
-							if (do_report)
-							{
-								subreport <<
-									"at index " << i << ":\n"
-									"    " << print(*ita) << ' ' << result.op << ' ' << print(*itb) << '\n';
-							}
-						}
+						subreport <<
+							"at index " << i << ":\n"
+							"    " << print(*ita) << ' ' << OP << ' ' << print(*itb) << '\n';
 					}
-					const bool different_size = (a_iterable && b_iterable && (ita != enda || itb != endb));
-					if (different_size)
-						report_once(do_report);
-					if (do_report)
-					{
-						auto pack_subreport = subreport.str();
-						subreport.str("");
-						if (different_size)
-						{
-							subreport <<
-								test << "failed: size mismatch\n";
-						}
-						if (!pack_subreport.empty())
-						{
-							subreport <<
-								test << "failed: element-by-element mismatch:\n" <<
-								pack_subreport;
-						}
-					}
-				});
-			}));
+				}
+			}
+			const bool different_size = (a_iterable && b_iterable && (ita != enda || itb != endb));
+			if (different_size)
+				report_once();
+			if (print_report)
+			{
+				auto pack_subreport = subreport.str();
+				subreport.str("");
+				if (different_size)
+				{
+					subreport <<
+						info << "failed: size mismatch\n";
+				}
+				if (!pack_subreport.empty())
+				{
+					subreport <<
+						info << "failed: element-by-element mismatch:\n" <<
+						pack_subreport;
+				}
+			}
 		}
 	}
 
-	template <class Proc>
-	void check_each(AssertionOf<Proc>&& test)
+	template <class First, class Last, Op OP>
+	void check_each(const Assertion& info, const result::Type<Last, result::TypeOp<First, OP>>& result)
 	{
-		details::check_each<Applier>(std::move(test));
+		details::check_each<Applier>(info, result);
 	}
-	template <class Proc>
-	void check_each_approx(AssertionOf<Proc>&& test)
+	template <class First, class Last, Op OP>
+	void check_each_approx(const Assertion& info, const result::Type<Last, result::TypeOp<First, OP>>& test)
 	{
-		details::check_each<Approximator>(std::move(test));
+		details::check_each<Approximator>(info, result);
 	}
 
 	class Case
@@ -541,5 +468,13 @@ namespace tester
 		iterator   end() const { return { _count }; }
 	};
 
-	void runTests();
+	struct TestResults
+	{
+		size_t subcase_count = 0;
+		size_t assert_count = 0;
+		size_t fail_count = 0;
+		size_t uncaught_exceptions = 0;
+	};
+
+	TestResults runTests();
 };
