@@ -6,6 +6,7 @@
 
 namespace tester
 {
+	using Procedure = std::function<void()>;
 	using Report = std::ostringstream;
 
 	extern Report report;
@@ -423,7 +424,6 @@ namespace tester
 	{
 		const char* _name;
 	public:
-		using Procedure = void(*)();
 
 		Case(const char* name) : _name(name){ }
 
@@ -437,7 +437,7 @@ namespace tester
 		Subcase(std::string_view name);
 		~Subcase();
 
-		void operator<<(const std::function<void()>& procedure) const;
+		void operator<<(const Procedure& procedure) const;
 	};
 
 	class Repeat
@@ -446,7 +446,7 @@ namespace tester
 	public:
 		Repeat(size_t count) : _count(count) { }
 
-		void operator<<(const std::function<void()>& procedure) const;
+		void operator<<(const Procedure& procedure) const;
 	};
 
 
@@ -455,7 +455,7 @@ namespace tester
 		size_t subcase_count = 0;
 		size_t assert_count = 0;
 		size_t fail_count = 0;
-		size_t uncaught_exceptions = 0;
+		size_t exception_count = 0;
 	};
 
 	TestResults runTests();

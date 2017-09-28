@@ -15,7 +15,7 @@ namespace tester
 	struct CaseData
 	{
 		const char* name;
-		Case::Procedure proc;
+		Procedure proc;
 	};
 	static auto& cases()
 	{
@@ -38,6 +38,7 @@ namespace tester
 			size_t assert_count = 0;
 			double presicion = 0;
 			std::vector<AssertData> fails;
+			AssertData exception;
 
 			void reset() { child_count = 0; assert_count = 0; }
 		};
@@ -56,6 +57,33 @@ namespace tester
 		auto depth = subcase_depth();
 		Expects(depth < stack.size());
 		return stack[depth];
+	}
+
+	static std::ostream& print_stack(std::ostream& out)
+	{
+		for (auto& subcase : subcase_stack())
+		{
+			out << '/' << subcase.name;
+			if (!subcase.section.empty())
+				out << ':' << subcase.section;
+		}
+		return out;
+	}
+
+	bool report_failure()
+	{
+		auto& subc = subcase();
+		if (subc.fails.size() < subc.assert_count)
+			subc.fails.resize(subc.assert_count);
+		auto& fail = subc.fails[subc.assert_count - 1];
+		fail.fail_count += 1;
+		return fail.fail_count == 1;
+	}
+	static bool report_exception()
+	{
+		auto& fail = subcase().exception;
+		fail.fail_count += 1;
+		return fail.fail_count == 1;
 	}
 
 	decltype(presicion) presicion(
@@ -93,23 +121,41 @@ namespace tester
 	struct SubcaseInfo
 	{
 		std::string id;
-		std::string exception;
 		size_t assert_count = 0;
 		size_t fail_count   = 0;
+		size_t exception_count = 0;
 	};
+
+
+	static void perform(const Procedure& proc)
+	{
+		auto explain_exception = [](std::exception* e)
+		{
+			std::ostringstream out;
+			print_stack(out) << "\n";
+			if (e)
+				out << typeid(*e).name() << " thrown after " << subcase().assert_count << " asserts, message:\n    " << e->what() << "\n";
+			else
+				out << "unknown exception thrown after " << subcase().assert_count << " asserts\n";
+			return out.str();
+		};
+		try { proc(); }
+		catch (std::exception& e)
+		{
+			if (report_exception())
+				subcase().exception.first_fail = explain_exception(&e);
+		}
+		catch (...)
+		{
+			if (report_exception())
+				subcase().exception.first_fail = explain_exception(nullptr);
+		}
+	}
 
 	static SubcaseInfo runCase(const CaseData& test)
 	{
 		SubcaseInfo result;
-		try { test.proc(); }
-		catch (std::exception& e)
-		{
-			result.exception = typeid(e).name() + std::string(":\n(") + e.what() + ")";
-		}
-		catch (...)
-		{
-			result.exception = "unknown exception";
-		}
+		perform(test.proc);
 
 		auto& stack = subcase_stack();
 
@@ -128,6 +174,14 @@ namespace tester
 					report <<
 						"  (first failure, failed " << fail.fail_count << " times)\n";
 				}
+				report << "\n";
+			}
+			if (level.exception.fail_count > 0)
+			{
+				result.exception_count += 1;
+				report << level.exception.first_fail;
+				if (level.exception.fail_count > 1)
+					report << "  (first exception, " << level.exception.fail_count << " exceptions thrown)\n";
 				report << "\n";
 			}
 			level.assert_count = 0;
@@ -202,22 +256,13 @@ namespace tester
 				subcase().reset();
 
 				auto info = runCase(test);
-
-				if (info.exception.empty())
-				{
-					if (info.fail_count > 0)
-						report << "subcase " << info.id << " done\n";
-				}
-				else
-				{
-					report << "subcase " << info.id << " threw " << info.exception << "\nafter ";
-					result.uncaught_exceptions += 1;
-				}
-				if (info.fail_count > 0 || !info.exception.empty())
-					report << info.fail_count << " failures / " << info.assert_count << " assertions\n\n";
+				if (info.fail_count > 0)
+					report 
+					<< "subcase " << info.id << " done\n"
+					<< info.fail_count << " failures / " << info.assert_count << " assertions\n\n";
 				result.assert_count += info.assert_count;
 				result.fail_count += info.fail_count;
-
+				result.exception_count += info.exception_count;
 
 				increase_subcase_index();
 				++i;
@@ -229,7 +274,7 @@ namespace tester
 			<< result.subcase_count << " subcases\n"
 			<< result.assert_count << " asserts\n"
 			<< result.fail_count << " failures\n"
-			<< result.uncaught_exceptions << " uncaught exceptions\n";
+			<< result.exception_count << " uncaught exceptions\n";
 		return result;
 	}
 
@@ -241,25 +286,11 @@ namespace tester
 			subcase().fails[subcase().assert_count - 1].first_fail = str();
 	}
 
-	bool report_failure()
-	{
-		auto& subc = subcase();
-		if (subc.fails.size() < subc.assert_count)
-			subc.fails.resize(subc.assert_count);
-		auto& fail = subc.fails[subc.assert_count - 1];
-		fail.fail_count += 1;
-		return fail.fail_count == 1;
-	}
 
 
 	std::ostream& operator<<(std::ostream& out, const Assertion& test)
 	{
-		for (auto& subcase : subcase_stack())
-		{
-			out << '/' << subcase.name;
-			if (!subcase.section.empty())
-				out << ':' << subcase.section;
-		}
+		print_stack(out);
 		return out << '\n' <<
 			test.file << '(' << test.line << ')' << '\n' <<
 			"    " << test.expr << '\n';
@@ -282,13 +313,13 @@ namespace tester
 
 	Case Case::operator<<(Procedure proc) &&
 	{
-		cases().push_back({ _name, proc });
+		cases().push_back({ _name, std::move(proc) });
 		return *this;
 	}
 	void Subcase::operator<<(const std::function<void()>& procedure) const
 	{
 		if (_shall_enter)
-			procedure();
+			perform(procedure);
 	}
 
 	void Repeat::operator<<(const std::function<void()>& procedure) const
@@ -299,7 +330,7 @@ namespace tester
 			{
 				subcase().reset();
 				section = std::to_string(i);
-				procedure();
+				perform(procedure);
 			}
 		};
 	}
