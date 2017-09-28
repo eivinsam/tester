@@ -2,6 +2,7 @@
 
 #include <sstream>
 #include <typeindex>
+#include <functional>
 
 namespace tester
 {
@@ -431,42 +432,23 @@ namespace tester
 
 	class Subcase
 	{
-		friend class Repeat;
 		const bool _shall_enter;
 	public:
 		Subcase(std::string_view name);
 		~Subcase();
 
-		explicit operator bool() { return _shall_enter; }
+		void operator<<(const std::function<void()>& procedure) const;
 	};
 
 	class Repeat
 	{
-		struct sentinel { };
-
-		class iterator
-		{
-			size_t _i;
-		public:
-			iterator(size_t i) : _i(i) { }
-
-			iterator& operator++() { ++_i; return *this; }
-
-			size_t operator*() const { return _i; }
-
-			bool operator!=(const iterator&) const;
-		};
-
-		Subcase _case;
-		const size_t _count;
+		size_t _count;
 	public:
-		Repeat(size_t count);
+		Repeat(size_t count) : _count(count) { }
 
-		size_t size() const { return _count; }
-
-		iterator begin() const { return { 0 }; }
-		iterator   end() const { return { _count }; }
+		void operator<<(const std::function<void()>& procedure) const;
 	};
+
 
 	struct TestResults
 	{

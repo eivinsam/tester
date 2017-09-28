@@ -179,24 +179,9 @@ namespace tester
 			subcase_depth() -= 1;
 		subcase().child_count += 1;
 	}
-	Repeat::Repeat(size_t count) : 
-		_case("repeat(" + std::to_string(count) + ")"), 
-		_count(_case._shall_enter ? count : 0)
-	{
-	}
 	void Assertion::increaseCount()
 	{
 		subcase().assert_count += 1;
-	}
-
-	bool Repeat::iterator::operator!=(const iterator& other) const
-	{
-		if (_i != other._i)
-		{
-			subcase().reset();
-			return true;
-		}
-		return false;
 	}
 
 	TestResults runTests()
@@ -299,5 +284,23 @@ namespace tester
 	{
 		cases().push_back({ _name, proc });
 		return *this;
+	}
+	void Subcase::operator<<(const std::function<void()>& procedure) const
+	{
+		if (_shall_enter)
+			procedure();
+	}
+
+	void Repeat::operator<<(const std::function<void()>& procedure) const
+	{
+		Subcase("repeat(" + std::to_string(_count) + ")") << [&]
+		{
+			for (size_t i = 0; i < _count; ++i)
+			{
+				subcase().reset();
+				section = std::to_string(i);
+				procedure();
+			}
+		};
 	}
 }
