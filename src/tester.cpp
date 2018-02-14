@@ -245,6 +245,7 @@ namespace tester
 		TestResults result;
 		for (auto& test : cases())
 		{
+			report << "case " << test.name << '\n';
 			Expects(subcase_stack().empty());
 			subcase_stack().emplace_back();
 			subcase().name = test.name;
